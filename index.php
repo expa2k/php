@@ -78,19 +78,6 @@ if ($_POST) {
         </div>
     </div>
     
-    <div class="position-fixed bottom-0 end-0 p-3">
-        <div class="toast align-items-center text-white bg-info border-0" role="alert" id="loginHelp">
-            <div class="d-flex">
-                <div class="toast-body">
-                    <strong>Usuario por defecto:</strong><br>
-                    Usuario: admin<br>
-                    Contraseña: admin123
-                </div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" 
-                        data-bs-dismiss="toast"></button>
-            </div>
-        </div>
-    </div>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
