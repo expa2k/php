@@ -213,7 +213,7 @@ if ($_POST) {
                             <i class="fas fa-dollar-sign"></i> Salario
                         </label>
                         <input type="text" class="form-control" id="salario" name="salario" 
-                               value="<?php echo $empleado['salario'] ? number_format($empleado['salario'], 2) : ($_POST['salario'] ?? ''); ?>"
+                               value="<?php echo isset($empleado['salario']) && $empleado['salario'] ? number_format($empleado['salario'], 2) : ($_POST['salario'] ?? ''); ?>"
                                placeholder="0.00" onblur="formatSalary(this)" onfocus="cleanSalaryFormat(this)">
                     </div>
                 </div>
