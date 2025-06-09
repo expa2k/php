@@ -1,3 +1,12 @@
+# Script PowerShell adaptado para recibir parámetros desde PHP
+param(
+    [string]$Action,
+    [string]$Username,
+    [string]$Password,
+    [string]$Group = "grupo1"  # Por defecto grupo1 (Cuates)
+)
+
+# Todas tus funciones existentes
 function Instalar-ActiveDirectory(){
     if(-not((Get-WindowsFeature -Name AD-Domain-Services).Installed)){
         Install-WindowsFeature -Name AD-Domain-Services -IncludeManagementTools
@@ -66,19 +75,16 @@ function Es-ContrasenaValida($contrasena) {
             $contrasena -match '[^a-zA-Z\d]')
 }
 
-function Crear-Usuario(){
+# Función modificada para recibir parámetros en lugar de Read-Host
+function Crear-Usuario($nombreUsuario, $contrasena, $grupo){
     try {
-        $nombreUsuario = Read-Host "Ingresa el nombre de usuario"
-        $contrasena = Read-Host "Ingresa la contrasena"
-        $grupo = Read-Host "Ingresa el grupo de la que sera parte el usuario (grupo1/grupo2)"
-        
         if(($grupo -ne "grupo1") -and ($grupo -ne "grupo2")){
-            echo "Ingresa un grupo valido (grupo1/grupo2)"
-            return
+            echo "Error: Ingresa un grupo valido (grupo1/grupo2)"
+            return $false
         }
         elseif(-not(Es-ContrasenaValida -contrasena $contrasena)){
-            echo "El password no es lo suficientemente seguro"
-            return
+            echo "Error: El password no es lo suficientemente seguro"
+            return $false
         }
         
         # Determinar la OU correcta según el grupo
@@ -87,10 +93,12 @@ function Crear-Usuario(){
         New-ADUser -Name $nombreUsuario -GivenName $nombreUsuario -Surname $nombreUsuario -SamAccountName $nombreUsuario -UserPrincipalName "$nombreUsuario@15champions.com" -Path $ou -ChangePasswordAtLogon $true -AccountPassword (ConvertTo-SecureString $contrasena -AsPlainText -Force) -Enabled $true
         Add-ADGroupMember -Identity $grupo -Members $nombreUsuario
         Configurar-Horarios -nombreUsuario $nombreUsuario -grupo $grupo
-        echo "Cuenta creada correctamente"
+        echo "Usuario '$nombreUsuario' creado correctamente en $grupo"
+        return $true
     }
     catch {
-        echo $Error[0].ToString()
+        echo "Error al crear usuario: $($Error[0].ToString())"
+        return $false
     }
 }
 
@@ -249,44 +257,31 @@ function Configurar-AlmacenamientoArchivos(){
     }
 }
 
-while($true){
-    echo "Menu de opciones"
-    echo "1. Instalar y configurar Active Directory"
-    echo "2. Crear grupos y unidades organizativas"
-    echo "3. Crear usuario"
-    echo "4. Configurar politicas de aplicaciones"
-    echo "5. Configurar auditoria de eventos y passwords seguros"
-    echo "6. Configurar almacenamiento de archivos"
-    echo "7. Salir"
-    $opc = Read-Host "Selecciona una opcion"
-
-    if($opc -eq "7"){
-        echo "Saliendo..."
-        break
+# Lógica principal para manejar parámetros desde PHP
+switch ($Action) {
+    "install" { 
+        Instalar-ActiveDirectory
+        Configurar-DominioAD
     }
-
-    switch($opc){
-        "1"{
-            Instalar-ActiveDirectory
-            Configurar-DominioAD
-        }
-        "2"{
-            Crear-UnidadesOrganizativas
-        }
-        "3"{
-            Crear-Usuario
-        }
-        "4"{
-            Configurar-PermisosAplicaciones
-        }
-        "5" {
-            Configurar-Auditoria
-            Configurar-ContrasenasSeguras
-        }
-        "6"{
-            Configurar-AlmacenamientoArchivos
-        }
-        default { echo "Selecciona una opcion valida (1..7)"}
+    "setup" {
+        Crear-UnidadesOrganizativas
     }
-    echo ""
+    "create_user" { 
+        $result = Crear-Usuario -nombreUsuario $Username -contrasena $Password -grupo $Group
+        if (-not $result) { exit 1 }
+    }
+    "configure_apps" {
+        Configurar-PermisosAplicaciones
+    }
+    "configure_security" {
+        Configurar-Auditoria
+        Configurar-ContrasenasSeguras
+    }
+    "configure_storage" {
+        Configurar-AlmacenamientoArchivos
+    }
+    default { 
+        echo "Acción no válida. Use: install, setup, create_user, configure_apps, configure_security, configure_storage"
+        exit 1
+    }
 }

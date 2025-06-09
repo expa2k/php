@@ -7,13 +7,8 @@ require_once '../functions/active_directory.php';
 $personal = new Personal();
 $totalEmpleados = count($personal->readAll());
 
-// Instanciar ActiveDirectoryManager
-$adManager = new ActiveDirectoryManager();
-
 $message = '';
 $error = '';
-$adMessage = '';
-$adError = '';
 
 // Configuración SSH
 $sshUser = "carlos";
@@ -43,103 +38,105 @@ function containerExists($containerName) {
 // Manejar acciones POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? null;
-    
-    // Acciones de Docker
-    if (in_array($action, ['start', 'stop', 'remove'])) {
-        $service = $_POST['docker_service'] ?? null;
+    $service = $_POST['docker_service'] ?? null;
 
-        if ($action === 'start' && $service) {
-            $containerName = ($service === 'apache') ? 'mi_apache_container' : 'mi_postgres_container';
-            
-            if (isContainerRunning($containerName)) {
-                $error = "El contenedor {$containerName} ya está en ejecución.";
-            } else {
-                if (containerExists($containerName)) {
-                    $output = runSSHCommand("docker start {$containerName}");
-                    $message = "Contenedor {$containerName} iniciado:<br><pre>" . htmlspecialchars($output) . "</pre>";
-                } else {
-                    if ($service === 'apache') {
-                        $output = runSSHCommand("docker run -d --name {$containerName} httpd");
-                    } else {
-                        $output = runSSHCommand("docker run -d --name {$containerName} -e POSTGRES_PASSWORD=mi_password postgres");
-                    }
-                    $message = "Contenedor {$containerName} creado y levantado:<br><pre>" . htmlspecialchars($output) . "</pre>";
-                }
-            }
-        } elseif ($action === 'stop' && isset($_POST['container_name'])) {
-            $containerName = $_POST['container_name'];
-            if (isContainerRunning($containerName)) {
-                $output = runSSHCommand("docker stop {$containerName}");
-                $message = "Contenedor {$containerName} detenido:<br><pre>" . htmlspecialchars($output) . "</pre>";
-            } else {
-                $error = "El contenedor {$containerName} no está en ejecución.";
-            }
-        } elseif ($action === 'remove' && isset($_POST['container_name'])) {
-            $containerName = $_POST['container_name'];
-            if (containerExists($containerName)) {
-                if (isContainerRunning($containerName)) {
-                    runSSHCommand("docker stop {$containerName}");
-                }
-                $output = runSSHCommand("docker rm {$containerName}");
-                $message = "Contenedor {$containerName} eliminado:<br><pre>" . htmlspecialchars($output) . "</pre>";
-            } else {
-                $error = "El contenedor {$containerName} no existe.";
-            }
+    // Gestión de contenedores Docker
+    if ($action === 'start' && $service) {
+        $containerName = ($service === 'apache') ? 'mi_apache_container' : 'mi_postgres_container';
+        
+        if (isContainerRunning($containerName)) {
+            $error = "El contenedor {$containerName} ya está en ejecución.";
         } else {
-            $error = "Acción no válida.";
+            if (containerExists($containerName)) {
+                $output = runSSHCommand("docker start {$containerName}");
+                $message = "Contenedor {$containerName} iniciado:<br><pre>" . htmlspecialchars($output) . "</pre>";
+            } else {
+                if ($service === 'apache') {
+                    $output = runSSHCommand("docker run -d --name {$containerName} httpd");
+                } else {
+                    $output = runSSHCommand("docker run -d --name {$containerName} -e POSTGRES_PASSWORD=mi_password postgres");
+                }
+                $message = "Contenedor {$containerName} creado y levantado:<br><pre>" . htmlspecialchars($output) . "</pre>";
+            }
+        }
+    } elseif ($action === 'stop' && isset($_POST['container_name'])) {
+        $containerName = $_POST['container_name'];
+        if (isContainerRunning($containerName)) {
+            $output = runSSHCommand("docker stop {$containerName}");
+            $message = "Contenedor {$containerName} detenido:<br><pre>" . htmlspecialchars($output) . "</pre>";
+        } else {
+            $error = "El contenedor {$containerName} no está en ejecución.";
+        }
+    } elseif ($action === 'remove' && isset($_POST['container_name'])) {
+        $containerName = $_POST['container_name'];
+        if (containerExists($containerName)) {
+            if (isContainerRunning($containerName)) {
+                runSSHCommand("docker stop {$containerName}");
+            }
+            $output = runSSHCommand("docker rm {$containerName}");
+            $message = "Contenedor {$containerName} eliminado:<br><pre>" . htmlspecialchars($output) . "</pre>";
+        } else {
+            $error = "El contenedor {$containerName} no existe.";
         }
     }
     
-    // Acciones de Active Directory
-    elseif ($action === 'init_ad') {
-        $result = $adManager->initializeEnvironment();
+    // Gestión de Active Directory
+    elseif ($action === 'install_ad') {
+        $result = installAD();
         if ($result['success']) {
-            $adMessage = $result['message'] . "<br><pre>" . print_r($result['results'], true) . "</pre>";
+            $message = "Active Directory instalado correctamente:<br><pre>" . htmlspecialchars($result['output']) . "</pre>";
         } else {
-            $adError = $result['message'];
+            $error = "Error al instalar Active Directory:<br><pre>" . htmlspecialchars($result['output']) . "</pre>";
         }
-    }
-    elseif ($action === 'create_user') {
+    } elseif ($action === 'setup_ad') {
+        $result = setupADStructure();
+        if ($result['success']) {
+            $message = "Estructura de AD configurada correctamente:<br><pre>" . htmlspecialchars($result['output']) . "</pre>";
+        } else {
+            $error = "Error al configurar estructura de AD:<br><pre>" . htmlspecialchars($result['output']) . "</pre>";
+        }
+    } elseif ($action === 'create_ad_user') {
         $username = $_POST['ad_username'] ?? '';
         $password = $_POST['ad_password'] ?? '';
-        $group = $_POST['ad_group'] ?? '';
-        $email = $_POST['ad_email'] ?? '';
+        $group = $_POST['ad_group'] ?? 'grupo1';
         
-        if (empty($username) || empty($password) || empty($group)) {
-            $adError = "Todos los campos son obligatorios para crear el usuario.";
+        if (empty($username) || empty($password)) {
+            $error = "Nombre de usuario y contraseña son requeridos.";
         } else {
-            $result = $adManager->createUser($username, $password, $group, $email);
+            $result = createADUser($username, $password, $group);
             if ($result['success']) {
-                $adMessage = $result['message'] . "<br><pre>" . htmlspecialchars($result['details']) . "</pre>";
+                $message = "Usuario de AD creado correctamente:<br><pre>" . htmlspecialchars($result['output']) . "</pre>";
             } else {
-                $adError = $result['message'];
+                $error = "Error al crear usuario de AD:<br><pre>" . htmlspecialchars($result['output']) . "</pre>";
             }
         }
-    }
-    elseif ($action === 'get_user_info') {
-        $username = $_POST['search_username'] ?? '';
-        if (empty($username)) {
-            $adError = "Ingrese un nombre de usuario para buscar.";
-        } else {
-            $result = $adManager->getUserInfo($username);
-            if ($result['success']) {
-                $adMessage = "Información del usuario:<br><pre>" . htmlspecialchars($result['data']) . "</pre>";
-            } else {
-                $adError = $result['message'];
-            }
-        }
-    }
-    elseif ($action === 'list_users') {
-        $result = $adManager->listUsers();
+    } elseif ($action === 'configure_apps') {
+        $result = configureApps();
         if ($result['success']) {
-            $adMessage = "Lista de usuarios:<br><pre>" . htmlspecialchars($result['data']) . "</pre>";
+            $message = "Permisos de aplicaciones configurados:<br><pre>" . htmlspecialchars($result['output']) . "</pre>";
         } else {
-            $adError = $result['message'];
+            $error = "Error al configurar aplicaciones:<br><pre>" . htmlspecialchars($result['output']) . "</pre>";
         }
+    } elseif ($action === 'configure_security') {
+        $result = configureSecurity();
+        if ($result['success']) {
+            $message = "Configuración de seguridad aplicada:<br><pre>" . htmlspecialchars($result['output']) . "</pre>";
+        } else {
+            $error = "Error en configuración de seguridad:<br><pre>" . htmlspecialchars($result['output']) . "</pre>";
+        }
+    } elseif ($action === 'configure_storage') {
+        $result = configureStorage();
+        if ($result['success']) {
+            $message = "Configuración de almacenamiento aplicada:<br><pre>" . htmlspecialchars($result['output']) . "</pre>";
+        } else {
+            $error = "Error en configuración de almacenamiento:<br><pre>" . htmlspecialchars($result['output']) . "</pre>";
+        }
+    } else {
+        $error = "Acción no válida.";
     }
 }
 
-// Obtener estados actuales de Docker
+// Obtener estados actuales de contenedores
 $apacheRunning = isContainerRunning('mi_apache_container');
 $apacheExists = containerExists('mi_apache_container');
 
@@ -157,7 +154,7 @@ $postgresExists = containerExists('mi_postgres_container');
 </div>
 
 <div class="row">
-    <div class="col-md-3">
+    <div class="col-md-4">
         <div class="dashboard-card text-center">
             <div class="card-icon">
                 <i class="fas fa-user-plus"></i>
@@ -170,7 +167,7 @@ $postgresExists = containerExists('mi_postgres_container');
         </div>
     </div>
     
-    <div class="col-md-3">
+    <div class="col-md-4">
         <div class="dashboard-card text-center">
             <div class="card-icon">
                 <i class="fas fa-cogs"></i>
@@ -183,7 +180,7 @@ $postgresExists = containerExists('mi_postgres_container');
         </div>
     </div>
 
-    <div class="col-md-3">
+    <div class="col-md-4">
         <div class="dashboard-card text-center">
             <div class="card-icon">
                 <i class="fas fa-users"></i>
@@ -193,19 +190,6 @@ $postgresExists = containerExists('mi_postgres_container');
             <a href="personal.php" class="btn btn-primary btn-sm">
                 <i class="fas fa-eye"></i> Ver Todos
             </a>
-        </div>
-    </div>
-
-    <div class="col-md-3">
-        <div class="dashboard-card text-center">
-            <div class="card-icon">
-                <i class="fas fa-server"></i>
-            </div>
-            <h4>AD</h4>
-            <p>Active Directory</p>
-            <button type="button" class="btn btn-info btn-sm" data-bs-toggle="modal" data-bs-target="#adModal">
-                <i class="fas fa-network-wired"></i> Gestionar
-            </button>
         </div>
     </div>
 </div>
@@ -246,6 +230,151 @@ $postgresExists = containerExists('mi_postgres_container');
     </div>
 </div>
 
+<!-- Mensajes de notificación -->
+<?php if ($message || $error): ?>
+<div class="row mt-4">
+    <div class="col-12">
+        <?php if ($message): ?>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                <?php echo $message; ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>
+        <?php if ($error): ?>
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <?php echo $error; ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        <?php endif; ?>
+    </div>
+</div>
+<?php endif; ?>
+
+<!-- Sección de Active Directory -->
+<div class="row mt-5">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="fas fa-server text-success"></i> Gestión de Active Directory</h4>
+            </div>
+            <div class="card-body">
+                
+                <!-- Configuración Inicial -->
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <h5><i class="fas fa-download"></i> Configuración Inicial</h5>
+                        <div class="d-grid gap-2">
+                            <form method="POST" style="display:inline;">
+                                <button type="submit" name="action" value="install_ad" class="btn btn-primary btn-block">
+                                    <i class="fas fa-download"></i> Instalar Active Directory
+                                </button>
+                            </form>
+                            <form method="POST" style="display:inline;">
+                                <button type="submit" name="action" value="setup_ad" class="btn btn-info btn-block">
+                                    <i class="fas fa-sitemap"></i> Configurar Estructura (OUs y Grupos)
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <h5><i class="fas fa-shield-alt"></i> Configuración de Políticas</h5>
+                        <div class="d-grid gap-2">
+                            <form method="POST" style="display:inline;">
+                                <button type="submit" name="action" value="configure_apps" class="btn btn-warning btn-block">
+                                    <i class="fas fa-ban"></i> Configurar Permisos de Apps
+                                </button>
+                            </form>
+                            <form method="POST" style="display:inline;">
+                                <button type="submit" name="action" value="configure_security" class="btn btn-danger btn-block">
+                                    <i class="fas fa-lock"></i> Configurar Seguridad y Auditoría
+                                </button>
+                            </form>
+                            <form method="POST" style="display:inline;">
+                                <button type="submit" name="action" value="configure_storage" class="btn btn-secondary btn-block">
+                                    <i class="fas fa-hdd"></i> Configurar Cuotas de Almacenamiento
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <hr>
+
+                <!-- Crear Usuario de AD -->
+                <div class="row">
+                    <div class="col-12">
+                        <h5><i class="fas fa-user-plus"></i> Crear Usuario de Active Directory</h5>
+                        <form method="POST" class="row g-3">
+                            <input type="hidden" name="action" value="create_ad_user">
+                            
+                            <div class="col-md-4">
+                                <label for="ad_username" class="form-label">Nombre de Usuario</label>
+                                <input type="text" class="form-control" id="ad_username" name="ad_username" required>
+                            </div>
+                            
+                            <div class="col-md-4">
+                                <label for="ad_password" class="form-label">Contraseña</label>
+                                <input type="password" class="form-control" id="ad_password" name="ad_password" required>
+                                <div class="form-text">Mínimo 8 caracteres, incluir mayúsculas, minúsculas, números y símbolos</div>
+                            </div>
+                            
+                            <div class="col-md-4">
+                                <label for="ad_group" class="form-label">Grupo</label>
+                                <select class="form-select" id="ad_group" name="ad_group" required>
+                                    <option value="grupo1">Grupo1 (Cuates)</option>
+                                    <option value="grupo2">Grupo2 (No Cuates)</option>
+                                </select>
+                            </div>
+                            
+                            <div class="col-12">
+                                <button type="submit" class="btn btn-success">
+                                    <i class="fas fa-user-plus"></i> Crear Usuario de AD
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <hr>
+
+                <!-- Información sobre grupos -->
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card border-success">
+                            <div class="card-header bg-success text-white">
+                                <h6><i class="fas fa-users"></i> Grupo1 (Cuates)</h6>
+                            </div>
+                            <div class="card-body">
+                                <ul class="list-unstyled mb-0">
+                                    <li><i class="fas fa-clock text-info"></i> Horario: 8:00 AM - 3:00 PM</li>
+                                    <li><i class="fas fa-hdd text-warning"></i> Cuota: 5 MB</li>
+                                    <li><i class="fas fa-ban text-danger"></i> Solo puede usar Notepad</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="card border-warning">
+                            <div class="card-header bg-warning text-dark">
+                                <h6><i class="fas fa-users"></i> Grupo2 (No Cuates)</h6>
+                            </div>
+                            <div class="card-body">
+                                <ul class="list-unstyled mb-0">
+                                    <li><i class="fas fa-clock text-info"></i> Horario: 3:00 PM - 2:00 AM</li>
+                                    <li><i class="fas fa-hdd text-warning"></i> Cuota: 10 MB</li>
+                                    <li><i class="fas fa-ban text-danger"></i> Notepad bloqueado</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Sección para levantar/gestionar contenedores Docker -->
 <div class="row mt-5">
     <div class="col-12">
@@ -254,13 +383,6 @@ $postgresExists = containerExists('mi_postgres_container');
                 <h4><i class="fas fa-cubes"></i> Gestión de Contenedores Docker</h4>
             </div>
             <div class="card-body">
-
-                <?php if ($message): ?>
-                    <div class="alert alert-success"><?php echo $message; ?></div>
-                <?php endif; ?>
-                <?php if ($error): ?>
-                    <div class="alert alert-danger"><?php echo $error; ?></div>
-                <?php endif; ?>
 
                 <form method="POST" class="row g-3 align-items-center mb-4">
                     <input type="hidden" name="action" value="start">
@@ -340,173 +462,5 @@ $postgresExists = containerExists('mi_postgres_container');
         </div>
     </div>
 </div>
-
-<!-- Modal para Active Directory -->
-<div class="modal fade" id="adModal" tabindex="-1" aria-labelledby="adModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="adModalLabel">
-                    <i class="fas fa-server"></i> Gestión de Active Directory
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                
-                <?php if ($adMessage): ?>
-                    <div class="alert alert-success"><?php echo $adMessage; ?></div>
-                <?php endif; ?>
-                <?php if ($adError): ?>
-                    <div class="alert alert-danger"><?php echo $adError; ?></div>
-                <?php endif; ?>
-
-                <!-- Pestañas para diferentes funciones -->
-                <ul class="nav nav-tabs" id="adTabs" role="tablist">
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link active" id="init-tab" data-bs-toggle="tab" data-bs-target="#init" type="button" role="tab">
-                            <i class="fas fa-play-circle"></i> Inicializar AD
-                        </button>
-                    </li>
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button" role="tab">
-                            <i class="fas fa-user-plus"></i> Crear Usuario
-                        </button>
-                    </li>
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="search-tab" data-bs-toggle="tab" data-bs-target="#search" type="button" role="tab">
-                            <i class="fas fa-search"></i> Buscar Usuario
-                        </button>
-                    </li>
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="list-tab" data-bs-toggle="tab" data-bs-target="#list" type="button" role="tab">
-                            <i class="fas fa-list"></i> Listar Usuarios
-                        </button>
-                    </li>
-                </ul>
-
-                <div class="tab-content mt-3" id="adTabsContent">
-                    <!-- Inicializar AD -->
-                    <div class="tab-pane fade show active" id="init" role="tabpanel">
-                        <div class="card">
-                            <div class="card-body">
-                                <h5><i class="fas fa-cogs"></i> Inicializar Active Directory</h5>
-                                <p>Esta opción instalará y configurará Active Directory con:</p>
-                                <ul>
-                                    <li>Dominio: <strong>15champions.com</strong></li>
-                                    <li>Unidades Organizativas: <strong>Cuates</strong> y <strong>no cuates</strong></li>
-                                    <li>Grupos: <strong>grupo1 (Cuates)</strong> y <strong>grupo2 (no cuates)</strong></li>
-                                    <li>Políticas de aplicaciones y seguridad</li>
-                                </ul>
-                                <form method="POST">
-                                    <input type="hidden" name="action" value="init_ad">
-                                    <button type="submit" class="btn btn-primary">
-                                        <i class="fas fa-rocket"></i> Inicializar Active Directory
-                                    </button>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Crear Usuario -->
-                    <div class="tab-pane fade" id="users" role="tabpanel">
-                        <div class="card">
-                            <div class="card-body">
-                                <h5><i class="fas fa-user-plus"></i> Crear Nuevo Usuario</h5>
-                                <form method="POST" class="row">
-                                    <input type="hidden" name="action" value="create_user">
-                                    
-                                    <div class="col-md-6 mb-3">
-                                        <label for="ad_username" class="form-label">Nombre de Usuario</label>
-                                        <input type="text" class="form-control" id="ad_username" name="ad_username" required>
-                                    </div>
-                                    
-                                    <div class="col-md-6 mb-3">
-                                        <label for="ad_password" class="form-label">Contraseña</label>
-                                        <input type="password" class="form-control" id="ad_password" name="ad_password" required>
-                                        <div class="form-text">Mínimo 8 caracteres, mayúsculas, minúsculas, números y símbolos</div>
-                                    </div>
-                                    
-                                    <div class="col-md-6 mb-3">
-                                        <label for="ad_group" class="form-label">Grupo</label>
-                                        <select class="form-select" id="ad_group" name="ad_group" required>
-                                            <option value="">Seleccionar grupo...</option>
-                                            <option value="grupo1">grupo1 (Cuates) - Horario: 8am-3pm</option>
-                                            <option value="grupo2">grupo2 (no cuates) - Horario: 3pm-2am</option>
-                                        </select>
-                                    </div>
-                                    
-                                    <div class="col-md-6 mb-3">
-                                        <label for="ad_email" class="form-label">Email (opcional)</label>
-                                        <input type="email" class="form-control" id="ad_email" name="ad_email">
-                                        <div class="form-text">Si no se especifica, será usuario@15champions.com</div>
-                                    </div>
-                                    
-                                    <div class="col-12">
-                                        <button type="submit" class="btn btn-success">
-                                            <i class="fas fa-user-plus"></i> Crear Usuario
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Buscar Usuario -->
-                    <div class="tab-pane fade" id="search" role="tabpanel">
-                        <div class="card">
-                            <div class="card-body">
-                                <h5><i class="fas fa-search"></i> Buscar Usuario</h5>
-                                <form method="POST" class="row">
-                                    <input type="hidden" name="action" value="get_user_info">
-                                    
-                                    <div class="col-md-8 mb-3">
-                                        <label for="search_username" class="form-label">Nombre de Usuario</label>
-                                        <input type="text" class="form-control" id="search_username" name="search_username" required>
-                                    </div>
-                                    
-                                    <div class="col-md-4 mb-3 d-flex align-items-end">
-                                        <button type="submit" class="btn btn-info">
-                                            <i class="fas fa-search"></i> Buscar
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Listar Usuarios -->
-                    <div class="tab-pane fade" id="list" role="tabpanel">
-                        <div class="card">
-                            <div class="card-body">
-                                <h5><i class="fas fa-list"></i> Lista de Usuarios</h5>
-                                <form method="POST">
-                                    <input type="hidden" name="action" value="list_users">
-                                    <button type="submit" class="btn btn-primary">
-                                        <i class="fas fa-list"></i> Obtener Lista de Usuarios
-                                    </button>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<script>
-// Mantener la pestaña activa después del submit
-document.addEventListener('DOMContentLoaded', function() {
-    // Si hay mensaje de AD, mostrar el modal
-    <?php if ($adMessage || $adError): ?>
-        var adModal = new bootstrap.Modal(document.getElementById('adModal'));
-        adModal.show();
-    <?php endif; ?>
-});
-</script>
 
 <?php require_once '../includes/footer.php'; ?>
