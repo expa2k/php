@@ -38,8 +38,65 @@ function containerExists($containerName) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? null;
     
+    // --- LÓGICA PARA CREAR USUARIO EN ACTIVE DIRECTORY ---
+    if ($action === 'create_ad_user') {
+        $nombreUsuario = escapeshellarg($_POST['nombre_usuario']);
+        $nombreCompleto = escapeshellarg($_POST['nombre_completo']);
+        $email = escapeshellarg($_POST['email']);
+        $tipoUsuario = escapeshellarg($_POST['tipo_usuario']);
+        $password = escapeshellarg($_POST['password']);
+        $scriptPath = realpath(__DIR__ . '/../scripts/crear_ad.ps1');
+
+        if ($scriptPath) {
+            $comando = "powershell.exe -ExecutionPolicy Bypass -File \"{$scriptPath}\" " .
+                       "-NombreUsuario {$nombreUsuario} " .
+                       "-NombreCompleto {$nombreCompleto} " .
+                       "-Email {$email} " .
+                       "-TipoUsuario {$tipoUsuario} " .
+                       "-Password {$password}";
+
+            $salida = shell_exec($comando . ' 2>&1');
+            
+            if (stripos($salida, 'error') !== false || stripos($salida, 'Exception') !== false) {
+                $error = "<strong>Error al crear usuario AD:</strong><br><pre>" . htmlspecialchars($salida) . "</pre>";
+            } else {
+                $message = "<strong>Resultado de creación de usuario AD:</strong><br><pre>" . htmlspecialchars($salida) . "</pre>";
+            }
+        } else {
+            $error = "Error: No se encontró el script 'crear_ad.ps1'.";
+        }
+    }
+    
+    // --- LÓGICA PARA CONFIGURAR SERVIDOR FTP ---
+    elseif ($action === 'configure_ftp') {
+        $sitioFTP = escapeshellarg($_POST['sitio_ftp']);
+        $rutaFTP = escapeshellarg($_POST['ruta_ftp']);
+        $puerto = !empty($_POST['puerto_ftp']) ? escapeshellarg($_POST['puerto_ftp']) : null;
+        $scriptPath = realpath(__DIR__ . '/../scripts/crear_ftp.ps1');
+
+        if ($scriptPath) {
+            $comando = "powershell.exe -ExecutionPolicy Bypass -File \"{$scriptPath}\" " .
+                       "-SitioFTP {$sitioFTP} " .
+                       "-RutaFTP {$rutaFTP}";
+            
+            if ($puerto) {
+                $comando .= " -Puerto {$puerto}";
+            }
+
+            $salida = shell_exec($comando . ' 2>&1');
+            
+            if (stripos($salida, 'error') !== false || stripos($salida, 'Exception') !== false) {
+                $error = "<strong>Error al configurar el servidor FTP:</strong><br><pre>" . htmlspecialchars($salida) . "</pre>";
+            } else {
+                $message = "<strong>Resultado de la configuración del FTP:</strong><br><pre>" . htmlspecialchars($salida) . "</pre>";
+            }
+        } else {
+            $error = "Error: No se encontró el script 'configurar_ftp_ad.ps1'.";
+        }
+    }
+    
     // --- LÓGICA PARA GESTIONAR DOCKER ---
-    if ($action === 'start' && isset($_POST['docker_service'])) {
+    elseif ($action === 'start' && isset($_POST['docker_service'])) {
         $service = $_POST['docker_service'];
         $containerName = ($service === 'apache') ? 'mi_apache_container' : 'mi_postgres_container';
         if (isContainerRunning($containerName)) {
@@ -71,40 +128,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $error = "El contenedor {$containerName} no existe.";
         }
-    } 
-    // --- NUEVA LÓGICA PARA CREAR USUARIO EN ACTIVE DIRECTORY ---
-    elseif ($action === 'create_ad_user') {
-        // 1. Recoger datos del formulario
-        $nombreUsuario = escapeshellarg($_POST['nombre_usuario']);
-        $nombreCompleto = escapeshellarg($_POST['nombre_completo']);
-        $email = escapeshellarg($_POST['email']);
-        $tipoUsuario = escapeshellarg($_POST['tipo_usuario']);
-        $password = escapeshellarg($_POST['password']);
-
-        // 2. Ruta al script de PowerShell (asumiendo que está en la carpeta 'scripts' fuera de 'pages')
-        // * ACTUALIZADO: Volviendo a usar _DIR_ como se solicitó *
-        $scriptPath = realpath(__DIR__ . '/../scripts/crear_ad.ps1');
-
-        if ($scriptPath) {
-             // 3. Construir y ejecutar el comando
-            $comando = "powershell.exe -ExecutionPolicy Bypass -File \"{$scriptPath}\" " .
-                       "-NombreUsuario {$nombreUsuario} " .
-                       "-NombreCompleto {$nombreCompleto} " .
-                       "-Email {$email} " .
-                       "-TipoUsuario {$tipoUsuario} " .
-                       "-Password {$password}";
-
-            $salida = shell_exec($comando . ' 2>&1');
-            
-            // 4. Asignar mensaje de éxito o error
-            if (stripos($salida, 'error') !== false) {
-                $error = "<strong>Error al crear usuario AD:</strong><br><pre>" . htmlspecialchars($salida) . "</pre>";
-            } else {
-                $message = "<strong>Resultado de creación de usuario AD:</strong><br><pre>" . htmlspecialchars($salida) . "</pre>";
-            }
-        } else {
-            $error = "Error: No se encontró el script 'crear_ad.ps1' en la ruta esperada.";
-        }
     }
 }
 
@@ -123,29 +146,30 @@ $postgresExists = containerExists('mi_postgres_container');
     </div>
 </div>
 
-<!-- Tarjetas de Acceso Rápido -->
 <div class="row">
-    <div class="col-md-3 mb-4">
+    <div class="col-xl-3 col-md-6 mb-4">
         <div class="dashboard-card text-center h-100">
             <div class="card-icon"><i class="fas fa-user-plus"></i></div>
-            <h4>Nuevo Empleado</h4>
+            <h4>Nuevo Empleado (DB)</h4>
             <p>Agregar a la base de datos local</p>
             <a href="personal_form.php" class="btn btn-success btn-sm mt-auto"><i class="fas fa-plus"></i> Agregar</a>
         </div>
     </div>
     
-    <div class="col-md-3 mb-4">
+    
+    
+    <div class="col-xl-3 col-md-6 mb-4">
         <div class="dashboard-card text-center h-100">
-            <div class="card-icon"><i class="fas fa-user-tie"></i></div>
-            <h4>Crear Usuario AD</h4>
-            <p>Registrar en Active Directory</p>
-            <button type="button" class="btn btn-info btn-sm mt-auto" data-bs-toggle="modal" data-bs-target="#crearUsuarioADModal">
-                <i class="fas fa-plus"></i> Crear en AD
+            <div class="card-icon"><i class="fas fa-server"></i></div>
+            <h4>Configurar FTP</h4>
+            <p>Crear sitio FTP con auth de AD</p>
+            <button type="button" class="btn btn-secondary btn-sm mt-auto" data-bs-toggle="modal" data-bs-target="#configurarFTPModal">
+                <i class="fas fa-cogs"></i> Configurar Servidor
             </button>
         </div>
     </div>
 
-    <div class="col-md-3 mb-4">
+    <div class="col-xl-3 col-md-6 mb-4">
         <div class="dashboard-card text-center h-100">
             <div class="card-icon"><i class="fas fa-users"></i></div>
             <h4><?php echo $totalEmpleados; ?></h4>
@@ -153,18 +177,8 @@ $postgresExists = containerExists('mi_postgres_container');
             <a href="personal.php" class="btn btn-primary btn-sm mt-auto"><i class="fas fa-eye"></i> Ver Todos</a>
         </div>
     </div>
-    
-    <div class="col-md-3 mb-4">
-        <div class="dashboard-card text-center h-100">
-            <div class="card-icon"><i class="fas fa-cogs"></i></div>
-            <h4>Configuración</h4>
-            <p>Ajustes del sistema</p>
-            <a href="change_password.php" class="btn btn-warning btn-sm mt-auto"><i class="fas fa-key"></i> Cambiar Contraseña</a>
-        </div>
-    </div>
 </div>
 
-<!-- Alertas para mostrar mensajes de éxito o error -->
 <?php if ($message): ?>
     <div class="alert alert-success"><?php echo $message; ?></div>
 <?php endif; ?>
@@ -172,42 +186,8 @@ $postgresExists = containerExists('mi_postgres_container');
     <div class="alert alert-danger"><?php echo $error; ?></div>
 <?php endif; ?>
 
-<!-- Sección de Actividad Reciente -->
+
 <div class="row mt-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h4><i class="fas fa-clock"></i> Actividad Reciente</h4>
-            </div>
-            <div class="card-body">
-                <div class="alert alert-info">
-                    <i class="fas fa-info-circle"></i> 
-                    Bienvenido al Sistema de Gestión de RRHH. Desde aquí puedes administrar todo el personal de la organización.
-                </div>
-                
-                <h5>Funcionalidades Disponibles:</h5>
-                <ul class="list-group list-group-flush">
-                    <li class="list-group-item">
-                        <i class="fas fa-users text-primary"></i> 
-                        <strong>Gestión de Personal:</strong> Crear, editar, visualizar y eliminar registros de empleados
-                    </li>
-                    <li class="list-group-item">
-                        <i class="fas fa-key text-warning"></i> 
-                        <strong>Seguridad:</strong> Cambiar contraseña de acceso al sistema
-                    </li>
-                    <li class="list-group-item">
-                        <i class="fas fa-database text-info"></i> 
-                        <strong>Base de Datos:</strong> Todos los datos se almacenan de forma segura
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </div>
-</div>
-
-
-<!-- Sección para gestionar contenedores Docker -->
-<div class="row mt-5">
     <div class="col-12">
         <div class="card">
             <div class="card-header">
@@ -246,7 +226,6 @@ $postgresExists = containerExists('mi_postgres_container');
                         </tr>
                     </thead>
                     <tbody>
-                        <!-- Apache -->
                         <tr>
                             <td>mi_apache_container</td>
                             <td>
@@ -267,7 +246,6 @@ $postgresExists = containerExists('mi_postgres_container');
                                 </form>
                             </td>
                         </tr>
-                        <!-- Postgres -->
                         <tr>
                             <td>mi_postgres_container</td>
                             <td>
@@ -290,13 +268,12 @@ $postgresExists = containerExists('mi_postgres_container');
                         </tr>
                     </tbody>
                 </table>
-
             </div>
         </div>
     </div>
 </div>
 
-<!-- MODAL PARA CREAR USUARIO AD -->
+
 <div class="modal fade" id="crearUsuarioADModal" tabindex="-1" aria-labelledby="crearUsuarioADModalLabel" aria-hidden="true">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
@@ -306,41 +283,68 @@ $postgresExists = containerExists('mi_postgres_container');
       </div>
       <form action="dashboard.php" method="POST">
         <div class="modal-body">
-            <p class="text-muted mb-4">Completa el formulario para registrar un nuevo usuario en AD. El script de PowerShell se encargará del resto.</p>
-            
+            <p class="text-muted mb-4">Completa el formulario para registrar un nuevo usuario en AD.</p>
             <input type="hidden" name="action" value="create_ad_user">
-
             <div class="mb-3">
-                <label for="nombre_usuario" class="form-label">Nombre de Usuario (SamAccountName)</label>
-                <input type="text" class="form-control" id="nombre_usuario" name="nombre_usuario" placeholder="ej. juan.perez" required>
+                <label for="ad_nombre_usuario" class="form-label">Nombre de Usuario (SamAccountName)</label>
+                <input type="text" class="form-control" id="ad_nombre_usuario" name="nombre_usuario" placeholder="ej. juan.perez" required>
             </div>
-
             <div class="mb-3">
-                <label for="nombre_completo" class="form-label">Nombre Completo</label>
-                <input type="text" class="form-control" id="nombre_completo" name="nombre_completo" placeholder="ej. Juan Pérez" required>
+                <label for="ad_nombre_completo" class="form-label">Nombre Completo</label>
+                <input type="text" class="form-control" id="ad_nombre_completo" name="nombre_completo" placeholder="ej. Juan Pérez" required>
             </div>
-
             <div class="mb-3">
-                <label for="email" class="form-label">Correo Electrónico</label>
-                <input type="email" class="form-control" id="email" name="email" placeholder="ej. juan.perez@dominio.com" required>
+                <label for="ad_email" class="form-label">Correo Electrónico</label>
+                <input type="email" class="form-control" id="ad_email" name="email" placeholder="ej. juan.perez@dominio.com" required>
             </div>
-            
             <div class="mb-3">
-                <label for="tipo_usuario" class="form-label">Tipo de Usuario</label>
-                <select class="form-select" id="tipo_usuario" name="tipo_usuario" required>
+                <label for="ad_tipo_usuario" class="form-label">Tipo de Usuario</label>
+                <select class="form-select" id="ad_tipo_usuario" name="tipo_usuario" required>
                     <option value="cuates">Cuates</option>
                     <option value="no cuates">No Cuates</option>
                 </select>
             </div>
-
             <div class="mb-3">
-                <label for="password" class="form-label">Contraseña</label>
-                <input type="password" class="form-control" id="password" name="password" placeholder="••••••••" required>
+                <label for="ad_password" class="form-label">Contraseña</label>
+                <input type="password" class="form-control" id="ad_password" name="password" placeholder="••••••••" required>
             </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
           <button type="submit" class="btn btn-primary"><i class="fas fa-plus-circle"></i> Crear Usuario</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="configurarFTPModal" tabindex="-1" aria-labelledby="configurarFTPModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="configurarFTPModalLabel"><i class="fas fa-server"></i> Configurar Servidor FTP con Active Directory</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form action="dashboard.php" method="POST">
+        <div class="modal-body">
+            <p class="text-muted mb-4">Completa el formulario para configurar un nuevo sitio FTP.</p>
+            <input type="hidden" name="action" value="configure_ftp">
+            <div class="mb-3">
+                <label for="ftp_sitio_ftp" class="form-label">Nombre del Sitio FTP</label>
+                <input type="text" class="form-control" id="ftp_sitio_ftp" name="sitio_ftp" placeholder="ej. MiSitioFTP" value="Default FTP Site" required>
+            </div>
+            <div class="mb-3">
+                <label for="ftp_ruta_ftp" class="form-label">Ruta Física (Directorio Raíz)</label>
+                <input type="text" class="form-control" id="ftp_ruta_ftp" name="ruta_ftp" placeholder="ej. C:\ftp_root" value="C:\Users\Administrator\Documents\ftp_users" required>
+            </div>
+            <div class="mb-3">
+                <label for="ftp_puerto_ftp" class="form-label">Puerto (Opcional)</label>
+                <input type="number" class="form-control" id="ftp_puerto_ftp" name="puerto_ftp" placeholder="Dejar en blanco para usar el puerto 21">
+            </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary"><i class="fas fa-cogs"></i> Configurar Ahora</button>
         </div>
       </form>
     </div>
