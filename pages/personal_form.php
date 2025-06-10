@@ -1,5 +1,8 @@
 <?php
 // pages/personal_form.php
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+
 require_once '../includes/header.php';
 require_once '../functions/personal.php';
 
@@ -31,7 +34,7 @@ if ($_POST) {
         'fecha_ingreso' => $_POST['fecha_ingreso'] ?: null,
         'salario' => floatval(str_replace(',', '', $_POST['salario']))
     ];
-    
+
     // Validaciones
     if (empty($data['nombre'])) {
         $errors[] = "El nombre es obligatorio.";
@@ -52,45 +55,67 @@ if ($_POST) {
     if (empty($data['puesto'])) {
         $errors[] = "El puesto es obligatorio.";
     }
-    
+
     // Si no hay errores, procesar
     if (empty($errors)) {
-        if ($isEdit) {
-            if ($personal->update($_GET['id'], $data)) {
-                $message = "Empleado actualizado correctamente.";
-                $messageType = 'success';
-                $empleado = $personal->readOne($_GET['id']); // Recargar datos
-            } else {
-                $message = "Error al actualizar el empleado.";
-                $messageType = 'danger';
+        // Solo para empleados nuevos (no edición)
+        if (!$isEdit) {
+            // Incluir archivo de envío de correos
+            require_once __DIR__ . '/../includes/send_email.php';
+
+            // Generar credenciales
+            function generarContrasena($longitud = 10) {
+                return substr(str_shuffle('0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'), 0, $longitud);
             }
-        } else {
-            $newId = $personal->create($data);
-            if ($newId) {
-                header('Location: personal_view.php?id=' . $newId . '&created=1');
-                exit();
-            } else {
-                $message = "Error al crear el empleado.";
-                $messageType = 'danger';
+
+            $password_generada = generarContrasena();
+            $usuario = strtolower($data['nombre'][0] . $data['apellido']);
+
+            // Enviar credenciales al correo ingresado en el formulario
+            if (!enviarCredenciales($data['nombre'], $data['apellido'], $data['email'], $usuario, $password_generada, $data['puesto'])) {
+                $errors[] = "No se pudo enviar el correo de credenciales.";
             }
         }
+
+        // Crear o actualizar empleado
+        if (empty($errors)) {
+            if ($isEdit) {
+                if ($personal->update($_GET['id'], $data)) {
+                    $message = "Empleado actualizado correctamente.";
+                    $messageType = 'success';
+                    $empleado = $personal->readOne($_GET['id']);
+                } else {
+                    $message = "Error al actualizar el empleado.";
+                    $messageType = 'danger';
+                }
+            } else {
+                $newId = $personal->create($data);
+                if ($newId) {
+                    $message = "Empleado creado y credenciales enviadas a: " . $data['email'];
+                    $messageType = 'success';
+                } else {
+                    $message = "Error al crear el empleado.";
+                    $messageType = 'danger';
+                }
+            }
+        }
+        }
     }
-}
 ?>
 
-<div class="row">
-    <div class="col-12">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h1>
-                <i class="fas fa-<?php echo $isEdit ? 'user-edit' : 'user-plus'; ?>"></i>
-                <?php echo $isEdit ? 'Editar Empleado' : 'Nuevo Empleado'; ?>
-            </h1>
-            <a href="personal.php" class="btn btn-secondary">
-                <i class="fas fa-arrow-left"></i> Volver
-            </a>
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1>
+                    <i class="fas fa-<?php echo $isEdit ? 'user-edit' : 'user-plus'; ?>"></i>
+                    <?php echo $isEdit ? 'Editar Empleado' : 'Nuevo Empleado'; ?>
+                </h1>
+                <a href="personal.php" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Volver
+                </a>
+            </div>
         </div>
     </div>
-</div>
 
 <?php if ($message): ?>
     <div class="alert alert-<?php echo $messageType; ?> alert-dismissible fade show" role="alert">
@@ -111,129 +136,129 @@ if ($_POST) {
     </div>
 <?php endif; ?>
 
-<div class="card">
-    <div class="card-header">
-        <h4>
-            <i class="fas fa-form"></i> 
-            <?php echo $isEdit ? 'Datos del Empleado' : 'Información del Nuevo Empleado'; ?>
-        </h4>
+    <div class="card">
+        <div class="card-header">
+            <h4>
+                <i class="fas fa-form"></i>
+                <?php echo $isEdit ? 'Datos del Empleado' : 'Información del Nuevo Empleado'; ?>
+            </h4>
+        </div>
+        <div class="card-body">
+            <form method="POST" onsubmit="return validatePersonalForm()">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="nombre" class="form-label">
+                                <i class="fas fa-user"></i> Nombre *
+                            </label>
+                            <input type="text" class="form-control" id="nombre" name="nombre"
+                                   value="<?php echo htmlspecialchars($empleado['nombre'] ?? $_POST['nombre'] ?? ''); ?>"
+                                   required>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="apellido" class="form-label">
+                                <i class="fas fa-user"></i> Apellido *
+                            </label>
+                            <input type="text" class="form-control" id="apellido" name="apellido"
+                                   value="<?php echo htmlspecialchars($empleado['apellido'] ?? $_POST['apellido'] ?? ''); ?>"
+                                   required>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="email" class="form-label">
+                                <i class="fas fa-envelope"></i> Email *
+                            </label>
+                            <input type="email" class="form-control" id="email" name="email"
+                                   value="<?php echo htmlspecialchars($empleado['email'] ?? $_POST['email'] ?? ''); ?>"
+                                   required>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="telefono" class="form-label">
+                                <i class="fas fa-phone"></i> Teléfono
+                            </label>
+                            <input type="tel" class="form-control" id="telefono" name="telefono"
+                                   value="<?php echo htmlspecialchars($empleado['telefono'] ?? $_POST['telefono'] ?? ''); ?>">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="departamento" class="form-label">
+                                <i class="fas fa-building"></i> Departamento *
+                            </label>
+                            <select class="form-control" id="departamento" name="departamento" required>
+                                <option value="">Seleccionar departamento</option>
+                                <?php
+                                $departamentos = ['IT', 'RRHH', 'Ventas', 'Marketing', 'Finanzas', 'Operaciones', 'Legal'];
+                                $selectedDept = $empleado['departamento'] ?? $_POST['departamento'] ?? '';
+                                foreach ($departamentos as $dept):
+                                    ?>
+                                    <option value="<?php echo $dept; ?>" <?php echo $selectedDept === $dept ? 'selected' : ''; ?>>
+                                        <?php echo $dept; ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="puesto" class="form-label">
+                                <i class="fas fa-briefcase"></i> Puesto *
+                            </label>
+                            <input type="text" class="form-control" id="puesto" name="puesto"
+                                   value="<?php echo htmlspecialchars($empleado['puesto'] ?? $_POST['puesto'] ?? ''); ?>"
+                                   required>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="fecha_ingreso" class="form-label">
+                                <i class="fas fa-calendar"></i> Fecha de Ingreso
+                            </label>
+                            <input type="date" class="form-control" id="fecha_ingreso" name="fecha_ingreso"
+                                   value="<?php echo $empleado['fecha_ingreso'] ?? $_POST['fecha_ingreso'] ?? ''; ?>">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="salario" class="form-label">
+                                <i class="fas fa-dollar-sign"></i> Salario
+                            </label>
+                            <input type="text" class="form-control" id="salario" name="salario"
+                                   value="<?php echo isset($empleado['salario']) && $empleado['salario'] ? number_format($empleado['salario'], 2) : ($_POST['salario'] ?? ''); ?>"
+                                   placeholder="0.00" onblur="formatSalary(this)" onfocus="cleanSalaryFormat(this)">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="d-flex justify-content-between">
+                            <a href="personal.php" class="btn btn-secondary">
+                                <i class="fas fa-times"></i> Cancelar
+                            </a>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save"></i>
+                                <?php echo $isEdit ? 'Actualizar' : 'Guardar'; ?> Empleado
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
     </div>
-    <div class="card-body">
-        <form method="POST" onsubmit="return validatePersonalForm()">
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="mb-3">
-                        <label for="nombre" class="form-label">
-                            <i class="fas fa-user"></i> Nombre *
-                        </label>
-                        <input type="text" class="form-control" id="nombre" name="nombre" 
-                               value="<?php echo htmlspecialchars($empleado['nombre'] ?? $_POST['nombre'] ?? ''); ?>" 
-                               required>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="mb-3">
-                        <label for="apellido" class="form-label">
-                            <i class="fas fa-user"></i> Apellido *
-                        </label>
-                        <input type="text" class="form-control" id="apellido" name="apellido" 
-                               value="<?php echo htmlspecialchars($empleado['apellido'] ?? $_POST['apellido'] ?? ''); ?>" 
-                               required>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="mb-3">
-                        <label for="email" class="form-label">
-                            <i class="fas fa-envelope"></i> Email *
-                        </label>
-                        <input type="email" class="form-control" id="email" name="email" 
-                               value="<?php echo htmlspecialchars($empleado['email'] ?? $_POST['email'] ?? ''); ?>" 
-                               required>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="mb-3">
-                        <label for="telefono" class="form-label">
-                            <i class="fas fa-phone"></i> Teléfono
-                        </label>
-                        <input type="tel" class="form-control" id="telefono" name="telefono" 
-                               value="<?php echo htmlspecialchars($empleado['telefono'] ?? $_POST['telefono'] ?? ''); ?>">
-                    </div>
-                </div>
-            </div>
-            
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="mb-3">
-                        <label for="departamento" class="form-label">
-                            <i class="fas fa-building"></i> Departamento *
-                        </label>
-                        <select class="form-control" id="departamento" name="departamento" required>
-                            <option value="">Seleccionar departamento</option>
-                            <?php 
-                            $departamentos = ['IT', 'RRHH', 'Ventas', 'Marketing', 'Finanzas', 'Operaciones', 'Legal'];
-                            $selectedDept = $empleado['departamento'] ?? $_POST['departamento'] ?? '';
-                            foreach ($departamentos as $dept): 
-                            ?>
-                                <option value="<?php echo $dept; ?>" <?php echo $selectedDept === $dept ? 'selected' : ''; ?>>
-                                    <?php echo $dept; ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="mb-3">
-                        <label for="puesto" class="form-label">
-                            <i class="fas fa-briefcase"></i> Puesto *
-                        </label>
-                        <input type="text" class="form-control" id="puesto" name="puesto" 
-                               value="<?php echo htmlspecialchars($empleado['puesto'] ?? $_POST['puesto'] ?? ''); ?>" 
-                               required>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="mb-3">
-                        <label for="fecha_ingreso" class="form-label">
-                            <i class="fas fa-calendar"></i> Fecha de Ingreso
-                        </label>
-                        <input type="date" class="form-control" id="fecha_ingreso" name="fecha_ingreso" 
-                               value="<?php echo $empleado['fecha_ingreso'] ?? $_POST['fecha_ingreso'] ?? ''; ?>">
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="mb-3">
-                        <label for="salario" class="form-label">
-                            <i class="fas fa-dollar-sign"></i> Salario
-                        </label>
-                        <input type="text" class="form-control" id="salario" name="salario" 
-                               value="<?php echo isset($empleado['salario']) && $empleado['salario'] ? number_format($empleado['salario'], 2) : ($_POST['salario'] ?? ''); ?>"
-                               placeholder="0.00" onblur="formatSalary(this)" onfocus="cleanSalaryFormat(this)">
-                    </div>
-                </div>
-            </div>
-            
-            <div class="row mt-4">
-                <div class="col-12">
-                    <div class="d-flex justify-content-between">
-                        <a href="personal.php" class="btn btn-secondary">
-                            <i class="fas fa-times"></i> Cancelar
-                        </a>
-                        <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-save"></i> 
-                            <?php echo $isEdit ? 'Actualizar' : 'Guardar'; ?> Empleado
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </form>
-    </div>
-</div>
 
 <?php require_once '../includes/footer.php'; ?>
